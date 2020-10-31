@@ -1,5 +1,4 @@
-CREATE TABLE menu
-(
+CREATE TABLE menu (
 	id SERIAL PRIMARY KEY,
 	name varchar(255) NOT NULL,
 	price money NOT NULL,
@@ -9,45 +8,35 @@ CREATE TABLE menu
 	updated_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-INSERT INTO menu
-	(name, price, weight)
-VALUES
-	('Пицца пепперони', 15, 700),
-	('Салат', 10, 3000),
-	('Шаурма', 2, 200);
+INSERT INTO menu (name, price, weight) VALUES
+('Пицца пепперони', 15, 700),
+('Салат', 10, 3000),
+('Шаурма', 2, 200);
 
-CREATE TABLE client
-(
+CREATE TABLE client (
 	id SERIAL PRIMARY KEY,
 	name varchar(255) NOT NULL,
 	address varchar(1000) NOT NULL,
-	phone varchar(11) NOT NULL
+	phone varchar(11) NOT NULL,
+	email varchar(255) NOT NULL UNIQUE,
+	password varchar(255) NOT NULL
 );
 
-INSERT INTO client
-	(name, address, phone)
-VALUES
-	('Иван', 'Боголюбова, 21, кв 14', '88005553535'),
-	('Николай', 'Университетская, 2, кв 11', '83004441122'),
-	('Вера', 'Пушкина, 4, кв 27', '89153002222');
+INSERT INTO client (name, address, phone, email, password) VALUES
+('Иван', 'Боголюбова, 21, кв 14', '88005553535', 'em1@gmail.com', '123'),
+('Николай', 'Университетская, 2, кв 11', '83004441122', 'em2@gmail.com', '123'),
+('Вера', 'Пушкина, 4, кв 27', '89153002222', 'em3@gmail.com', '123');
 
-CREATE TABLE order_
-(
+CREATE TABLE order_ (
 	id SERIAL PRIMARY KEY,
 	client_id INTEGER NOT NULL REFERENCES client(id),
 	created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 
-INSERT INTO order_
-	(client_id)
-VALUES
-	(1),
-	(1),
-	(1),
-	(2);
+INSERT INTO order_ (client_id) VALUES 
+(1),(1),(1),(2);
 
-CREATE TABLE order_menu
-(
+CREATE TABLE order_menu (
 	order_id INTEGER NOT NULL REFERENCES order_(id),
 	menu_id INTEGER NOT NULL REFERENCES menu(id),
 	count INTEGER NOT NULL,
@@ -55,11 +44,9 @@ CREATE TABLE order_menu
 	PRIMARY KEY(order_id, menu_id)
 );
 
-INSERT INTO order_menu
-	(order_id, menu_id, count, price)
-VALUES
-	(1, 1, 1, 15),
-	(1, 2, 1, 10),
-	(2, 1, 2, 30),
-	(3, 3, 6, 12),
-	(4, 1, 2, 30);
+INSERT INTO order_menu (order_id, menu_id, count, price) VALUES
+(1, 1, 1, 15),
+(1, 2, 1, 10),
+(2, 1, 2, 30),
+(3, 3, 6, 12),
+(4, 1, 2, 30);

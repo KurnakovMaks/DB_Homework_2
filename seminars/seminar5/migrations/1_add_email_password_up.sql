@@ -8,4 +8,4 @@ BEGIN;
 	ADD COLUMN password varchar
     (255);
 
-    COMMIT; 
+    COMMIT;
