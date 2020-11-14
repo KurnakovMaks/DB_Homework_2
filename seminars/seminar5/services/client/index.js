@@ -51,6 +51,7 @@ async function signIn(email,password) {
     // если пользователь с таким email
     // не найден
     if (rows.length == 0) {
+        //дз -- передавать еще http статус
         throw new Error('User not found')
     }
     
@@ -62,7 +63,7 @@ async function signIn(email,password) {
 
     // если правильность введённых данных пользователем
     // подтверждена
-    const token = jwt.sign(
+    return jwt.sign(
         {
             id:rows[0].id,
             email:rows[0].email
