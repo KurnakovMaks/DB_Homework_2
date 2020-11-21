@@ -6,13 +6,23 @@ const pool = require('../../config/db')
  */
 async function findOrderByClientID(id) {
     // TODO: в этой функции ещё возвращать стоимость заказа (дз)
-    const {rows} = await pgclient.query(`
-    SELECT id, client_id, created_at
-    FROM order_
-    WHERE client_id = $1
-    ORDER BY created_at DESC
-    `, [id])
-    
+    const { rows } = await pool.query(
+        `
+    WITH order_sum AS (
+        SELECT ord.id, sum(om.price) as order_sum
+        FROM order_ ord
+        INNER JOIN order_menu om ON ord.id = om.order_id
+        WHERE ord.client_id = $1
+        GROUP BY ord.id
+      )
+      
+      SELECT ord.id, ord.client_id, ord.created_at, order_sum.order_sum
+      FROM order_ ord
+      INNER JOIN order_sum ON order_sum.id = ord.id
+    `,
+        [id]
+    )
+
     return rows
 }
 
@@ -23,23 +33,25 @@ async function findOrderByClientID(id) {
  * продукта и его количество
  */
 async function makeOrder(id, order) {
-    
     let pgclient = await pool.connect()
-  
+
     try {
         // открываем транзакцию
         await pgclient.query('BEGIN')
-  
+
         // Создали заказ и получили его ID
-        const { rows } = await pgclient.query(`
+        const { rows } = await pgclient.query(
+            `
         INSERT INTO order_ (client_id) VALUES ($1) RETURNING id
-        `, [id])
+        `,
+            [id]
+        )
         const orderID = rows[0].id
-  
+
         // делаем цикл по body
         // чтобы подготовить запрос на получение цены
         // по каждому товару из заказа
-  
+
         // параметры для подготовки IN запроса
         // пример: IN ($1,$2,$3)
         let params = [] // ["$1", "$2", "$3"]
@@ -49,88 +61,89 @@ async function makeOrder(id, order) {
             params.push(`$${i + 1}`)
             values.push(item.menu_id)
         }
-  
+
         // Получить стоимость из меню
-        const { rows: costQueryRes } = await pgclient.query(`
+        const { rows: costQueryRes } = await pgclient.query(
+            `
             SELECT id, price::numeric
             FROM menu
             WHERE id IN (${params.join(',')})
-            `, values
-            )
-  
-            // мы хотим содать новую переменную, которая
-            // будет включать тоже самое, что и
-            // входной body, только с вычисленной ценой
-            let orderWithCost = []
-            // для этого надо пройтись по каждому элементу
-            // в body
-            for (const item of order) {
-                // и для каждого элемента найти цену в costQuery
-                // полученном при помощи запроса
-                let cost = null
+            `,
+            values
+        )
 
-                for (const costItem of costQueryRes) {
-                    // ищем совпадение id в costQuery
-                    // с menu_id переданном в body
-                    if (costItem.id === item.menu_id) {
-                        cost = costItem.price
-                    }
+        // мы хотим содать новую переменную, которая
+        // будет включать тоже самое, что и
+        // входной body, только с вычисленной ценой
+        let orderWithCost = []
+        // для этого надо пройтись по каждому элементу
+        // в body
+        for (const item of order) {
+            // и для каждого элемента найти цену в costQuery
+            // полученном при помощи запроса
+            let cost = null
+
+            for (const costItem of costQueryRes) {
+                // ищем совпадение id в costQuery
+                // с menu_id переданном в body
+                if (costItem.id === item.menu_id) {
+                    cost = costItem.price
                 }
-  
-                // тут cost либо null, либо с значением цены
-                // и если cost null, означает, что такого товара
-                // в таблице menu не найдено, т.е. ошибка
-                // Нам надо сделать rollback, вернуть сообщение клиенту
-                if (!cost) {
-                    throw new Error(`Not found in menu: ${item.menu_id}`) }
-  
-                orderWithCost.push({
-                    ...item,
-                    cost: cost * item.count, // найденную стоимость на кол-во
-                })
             }
-  
-            // добавляем все продукты заказа в order_menu
-            // оптимальный вариант, это сгенерировать один
-            // INSERT, который сразу добавит всё в таблицу
-            // order_menu (как мы делали раньше)
-            // Но тут попробуем сделать с Promise.all
-            // т.е. отправить одновременно в базу все запросы
-            // а уже после отправки ждать выполнение их всех
-            // вместе.
-            let promises = []
-            
-            for (const item of orderWithCost) {
-                promises.push(
-                    pgclient.query(`
+
+            // тут cost либо null, либо с значением цены
+            // и если cost null, означает, что такого товара
+            // в таблице menu не найдено, т.е. ошибка
+            // Нам надо сделать rollback, вернуть сообщение клиенту
+            if (!cost) {
+                throw new Error(`Not found in menu: ${item.menu_id}`)
+            }
+
+            orderWithCost.push({
+                ...item,
+                cost: cost * item.count, // найденную стоимость на кол-во
+            })
+        }
+
+        // добавляем все продукты заказа в order_menu
+        // оптимальный вариант, это сгенерировать один
+        // INSERT, который сразу добавит всё в таблицу
+        // order_menu (как мы делали раньше)
+        // Но тут попробуем сделать с Promise.all
+        // т.е. отправить одновременно в базу все запросы
+        // а уже после отправки ждать выполнение их всех
+        // вместе.
+        let promises = []
+
+        for (const item of orderWithCost) {
+            promises.push(
+                pgclient.query(
+                    `
                     INSERT INTO order_menu (order_id, menu_id, count, price)
                     VALUES ($1, $2, $3, $4);`,
-                    [orderID, item.menu_id, item.count, item.cost])
-                    )
-                }
-  
-                    // ждём, пока выполнятся все запросы
-                    await Promise.all(promises)
-  
-                    // коммитим изменения в базе
-                    await pgclient.query('COMMIT')
-  
-                    return orderID
-                } 
+                    [orderID, item.menu_id, item.count, item.cost]
+                )
+            )
+        }
 
-                catch (err) {
-                    // Всегда, если мы попадаем в catch, то
-                    // откатываем транзакцию
-                    await pgclient.query('ROLLBACK')
- 
-                    // возвращаем ошибку
-                    throw err
-                } 
-   
-                finally {
-                    // освобождаем соединение с postgresql
-                    await pgclient.release()
-                }
+        // ждём, пока выполнятся все запросы
+        await Promise.all(promises)
+
+        // коммитим изменения в базе
+        await pgclient.query('COMMIT')
+
+        return orderID
+    } catch (err) {
+        // Всегда, если мы попадаем в catch, то
+        // откатываем транзакцию
+        await pgclient.query('ROLLBACK')
+
+        // возвращаем ошибку
+        throw err
+    } finally {
+        // освобождаем соединение с postgresql
+        await pgclient.release()
+    }
 }
 
 module.exports = {
